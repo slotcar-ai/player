@@ -1,5 +1,6 @@
 using System;
 using Xunit;
+using FluentAssertions;
 
 namespace Player.Tests
 {
@@ -8,7 +9,9 @@ namespace Player.Tests
         [Fact]
         public void XunitShouldWork()
         {
-            Assert.True(true);
+            var theBoolean = true;
+
+            theBoolean.Should().BeTrue();
         }
     }
 }
