@@ -38,11 +38,13 @@ namespace Player {
             _trackUpdatesSocket = CreateTrackSocket (receiveport);
             _speedUpdateSocket = CreateTrackSocket (sendport);
             Send (_trackUpdatesSocket, AddEnding ("PlayerA:UpdateMe"));
+            Send (_speedUpdateSocket, AddEnding ("PlayerA:Speed"));
             Receive (_trackUpdatesSocket);
-            var i = 1;
+            var onOff = false;
             while (true) {
-                i++;
-                Send (_speedUpdateSocket, AddEnding(i.ToString()));
+                var speed = onOff ? 100 : 0;
+                Send (_speedUpdateSocket, AddEnding (speed.ToString ()));
+                onOff = !onOff;
                 Thread.Sleep (1000);
             }
         }
@@ -152,9 +154,8 @@ namespace Player {
 
         public void SendSpeed (int speed) {
             // Convert the string data to byte data using ASCII encoding.  
-            Send (_speedUpdateSocket, AddEnding(speed.ToString()));
+            Send (_speedUpdateSocket, AddEnding (speed.ToString ()));
         }
-
         private void SendCallback (IAsyncResult ar) {
             try {
                 // Retrieve the socket from the state object.  
