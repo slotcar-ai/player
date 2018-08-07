@@ -19,6 +19,7 @@ namespace Player {
     public class TrackConnection : IDisposable {
         private const int sendport = 11000;
         private const int receiveport = 11001;
+        private char unitSeperatorChar = (char) Convert.ToInt32 ("0x1f", 16);
 
         // ManualResetEvent instances signal completion.  
         private ManualResetEvent connectDone =
@@ -36,14 +37,18 @@ namespace Player {
         public TrackConnection () {
             _trackUpdatesSocket = CreateTrackSocket (receiveport);
             _speedUpdateSocket = CreateTrackSocket (sendport);
-            Send (_trackUpdatesSocket, "UpdateMe<EOF>");
+            Send (_trackUpdatesSocket, AddEnding ("PlayerA:UpdateMe"));
             Receive (_trackUpdatesSocket);
             var i = 1;
             while (true) {
                 i++;
-                Send (_speedUpdateSocket, i+"<EOF>");
+                Send (_speedUpdateSocket, AddEnding(i.ToString()));
                 Thread.Sleep (1000);
             }
+        }
+
+        private string AddEnding (string str) {
+            return str + unitSeperatorChar;
         }
 
         private Socket CreateTrackSocket (int port) {
@@ -118,8 +123,8 @@ namespace Player {
 
                 if (bytesRead > 0) {
                     // There might be more data, so store the data received so far.  
-                    string value = Encoding.ASCII.GetString(state.buffer, 0, bytesRead);
-                    state.sb.Append (value  );
+                    string value = Encoding.ASCII.GetString (state.buffer, 0, bytesRead);
+                    state.sb.Append (value);
                     Console.WriteLine (value);
                     // Get the rest of the data.  
                     client.BeginReceive (state.buffer, 0, StateObject.BufferSize, 0,
@@ -147,7 +152,7 @@ namespace Player {
 
         public void SendSpeed (int speed) {
             // Convert the string data to byte data using ASCII encoding.  
-            Send (_speedUpdateSocket, speed + "<EOS>");
+            Send (_speedUpdateSocket, AddEnding(speed.ToString()));
         }
 
         private void SendCallback (IAsyncResult ar) {
