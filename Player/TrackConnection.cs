@@ -6,70 +6,60 @@ using System.Threading;
 
 namespace Player {
 
-    public class StateObject {
-        // Client  socket.  
+    public class RecieveStateObject {
         public Socket workSocket = null;
-        // Size of receive buffer.  
         public const int BufferSize = 1024;
-        // Receive buffer.  
         public byte[] buffer = new byte[BufferSize];
-        // Received data string.  
         public StringBuilder sb = new StringBuilder ();
     }
+    public enum ConnectionType {
+        speedStreamer,
+        trackUpdateStreamer,
+
+    }
+    public class ConnectStateObject {
+        public ConnectStateObject (Socket socket, ConnectionType type) {
+            Socket = socket;
+            ConnectionType = type;
+        }
+        public Socket Socket { get; private set; }
+        public ConnectionType ConnectionType { get; private set; }
+
+        internal string GetTypeId () {
+            switch (ConnectionType) {
+                case ConnectionType.speedStreamer:
+                    return "SpeedStreamer";
+                case ConnectionType.trackUpdateStreamer:
+                    return "TackUpdateStreamer";
+                default:
+                    return "";
+            }
+        }
+    };
     public class TrackConnection : IDisposable {
-        private const int sendport = 11000;
-        private const int receiveport = 11001;
+        private const int trackPort = 11000;
         private char unitSeperatorChar = (char) Convert.ToInt32 ("0x1f", 16);
 
-        // ManualResetEvent instances signal completion.  
-        private ManualResetEvent connectDone =
-            new ManualResetEvent (false);
-        private ManualResetEvent sendDone =
-            new ManualResetEvent (false);
-        private ManualResetEvent receiveDone =
-            new ManualResetEvent (false);
-
-        // The response from the remote device.  
+        private ManualResetEvent connectToSpeedSocketDone = new ManualResetEvent (false);
         private string response = String.Empty;
         private Socket _speedUpdateSocket;
         private Socket _trackUpdatesSocket;
 
         public TrackConnection () {
-            _trackUpdatesSocket = CreateTrackSocket (receiveport);
-            _speedUpdateSocket = CreateTrackSocket (sendport);
-            Send (_trackUpdatesSocket, AddEnding ("PlayerA:UpdateMe"));
-            Send (_speedUpdateSocket, AddEnding ("PlayerA:Speed"));
-            Receive (_trackUpdatesSocket);
-            var onOff = false;
-            while (true) {
-                var speed = onOff ? 100 : 0;
-                Send (_speedUpdateSocket, AddEnding (speed.ToString ()));
-                onOff = !onOff;
-                Thread.Sleep (1000);
-            }
+            _trackUpdatesSocket = CreateTrackSocket (trackPort, ConnectionType.trackUpdateStreamer);
+            _speedUpdateSocket = CreateTrackSocket (trackPort, ConnectionType.speedStreamer);
+
+            connectToSpeedSocketDone.WaitOne ();
         }
 
-        private string AddEnding (string str) {
-            return str + unitSeperatorChar;
-        }
-
-        private Socket CreateTrackSocket (int port) {
-            // Connect to a remote device.  
+        private Socket CreateTrackSocket (int port, ConnectionType type) {
             try {
-                // Establish the remote endpoint for the socket.  
                 IPHostEntry ipHostInfo = Dns.GetHostEntry (Dns.GetHostName ());
                 IPAddress ipAddress = ipHostInfo.AddressList[0];
-                IPEndPoint remoteEP = new IPEndPoint (ipAddress, port);
+                Socket client = new Socket (ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
-                // Create a TCP/IP socket.  
-                Socket client = new Socket (ipAddress.AddressFamily,
-                    SocketType.Stream, ProtocolType.Tcp);
-
-                // Connect to the remote endpoint.  
-                client.BeginConnect (remoteEP,
-                    new AsyncCallback (ConnectCallback), client);
-                connectDone.WaitOne ();
-                // Write the response to the console.  
+                var state = new ConnectStateObject (client, type);
+                client.BeginConnect (ipAddress, port, new AsyncCallback (ConnectCallback), state);
                 return client;
 
             } catch (Exception e) {
@@ -79,102 +69,100 @@ namespace Player {
         }
 
         private void ConnectCallback (IAsyncResult ar) {
+            var state = (ConnectStateObject) ar.AsyncState;
             try {
-                // Retrieve the socket from the state object.  
-                Socket client = (Socket) ar.AsyncState;
 
-                // Complete the connection.  
-                client.EndConnect (ar);
+                state.Socket.EndConnect (ar);
+                Console.WriteLine ("Socket connected to {0}", state.Socket.RemoteEndPoint.ToString ());
 
-                Console.WriteLine ("Socket connected to {0}",
-                    client.RemoteEndPoint.ToString ());
-
-                // Signal that the connection has been made.  
-                connectDone.Set ();
+                state.Socket.Send (Encoding.ASCII.GetBytes (state.GetTypeId ()+ unitSeperatorChar));
+                if (state.ConnectionType == ConnectionType.speedStreamer) {
+                    connectToSpeedSocketDone.Set ();
+                } else if (state.ConnectionType == ConnectionType.trackUpdateStreamer) {
+                    ReceiveTrackUpdates (state.Socket);
+                }
             } catch (Exception e) {
+                CloseSocket (state.Socket);
                 Console.WriteLine (e.ToString ());
+                throw;
             }
         }
 
-        public void Receive (Socket socket) {
+        public void ReceiveTrackUpdates (Socket socket) {
             try {
-                // Create the state object.  
-                StateObject state = new StateObject ();
+                RecieveStateObject state = new RecieveStateObject ();
                 state.workSocket = socket;
 
-                // Begin receiving the data from the remote device.  
-                socket.BeginReceive (state.buffer, 0, StateObject.BufferSize, 0,
-                    new AsyncCallback (ReceiveCallback), state);
+                socket.BeginReceive (state.buffer, 0, RecieveStateObject.BufferSize, 0,
+                    new AsyncCallback (ReceiveTrackUpdate), state);
             } catch (Exception e) {
+                CloseSocket (socket);
                 Console.WriteLine (e.ToString ());
             }
         }
+
         public string GetLatestResponse () {
             return response;
         }
 
-        private void ReceiveCallback (IAsyncResult ar) {
+        private void ReceiveTrackUpdate (IAsyncResult ar) {
             try {
-                // Retrieve the state object and the client socket   
-                // from the asynchronous state object.  
-                StateObject state = (StateObject) ar.AsyncState;
+                RecieveStateObject state = (RecieveStateObject) ar.AsyncState;
                 Socket client = state.workSocket;
 
-                // Read data from the remote device.  
                 int bytesRead = client.EndReceive (ar);
 
                 if (bytesRead > 0) {
-                    // There might be more data, so store the data received so far.  
                     string value = Encoding.ASCII.GetString (state.buffer, 0, bytesRead);
                     state.sb.Append (value);
                     Console.WriteLine (value);
-                    // Get the rest of the data.  
-                    client.BeginReceive (state.buffer, 0, StateObject.BufferSize, 0,
-                        new AsyncCallback (ReceiveCallback), state);
-                } else {
-                    // All the data has arrived; put it in response.  
-                    if (state.sb.Length > 1) {
-                        response = state.sb.ToString ();
-                    }
-                    // Signal that all bytes have been received.  
-                    receiveDone.Set ();
                 }
+                client.BeginReceive (state.buffer, 0, RecieveStateObject.BufferSize, 0,
+                    new AsyncCallback (ReceiveTrackUpdate), state);
             } catch (Exception e) {
+                CloseSocket ((Socket) ar.AsyncState);
                 Console.WriteLine (e.ToString ());
             }
         }
-
         private void Send (Socket socket, string data) {
-            byte[] byteData = Encoding.ASCII.GetBytes (data);
+            try {
+                byte[] byteData = Encoding.ASCII.GetBytes (data + unitSeperatorChar);
+                socket.BeginSend (byteData, 0, byteData.Length, 0,
+                    new AsyncCallback (SendCallback), socket);
 
-            // Begin sending the data to the remote device.  
-            socket.BeginSend (byteData, 0, byteData.Length, 0,
-                new AsyncCallback (SendCallback), socket);
+            } catch (System.Exception e) {
+                CloseSocket (socket);
+                Console.WriteLine (e.ToString ());
+                throw;
+            }
         }
 
         public void SendSpeed (int speed) {
-            // Convert the string data to byte data using ASCII encoding.  
-            Send (_speedUpdateSocket, AddEnding (speed.ToString ()));
+            Send (_speedUpdateSocket, speed.ToString ());
         }
         private void SendCallback (IAsyncResult ar) {
             try {
-                // Retrieve the socket from the state object.  
                 Socket client = (Socket) ar.AsyncState;
 
-                // Complete sending the data to the remote device.  
                 int bytesSent = client.EndSend (ar);
                 Console.WriteLine ("Sent {0} bytes to server.", bytesSent);
-
-                // Signal that all bytes have been sent.  
-                sendDone.Set ();
             } catch (Exception e) {
+                CloseSocket ((Socket) ar.AsyncState);
                 Console.WriteLine (e.ToString ());
             }
         }
-
         public void Dispose () {
-            _speedUpdateSocket.Shutdown (SocketShutdown.Both);
-            _speedUpdateSocket.Close ();
+            CloseSocket (_speedUpdateSocket);
+            CloseSocket (_trackUpdatesSocket);
+        }
+
+        private void CloseSocket (Socket socket) {
+            if (socket == null) return;
+
+            if (socket.Connected) {
+                socket.Shutdown (SocketShutdown.Both);
+            }
+            socket.Close ();
         }
     }
 }
