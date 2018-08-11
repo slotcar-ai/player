@@ -37,7 +37,6 @@ namespace Player {
         }
     };
     public class TrackConnection : IDisposable {
-        private const int trackPort = 11000;
         private char unitSeperatorChar = (char) Convert.ToInt32 ("0x1f", 16);
 
         private ManualResetEvent connectToSpeedSocketDone = new ManualResetEvent (false);
@@ -46,15 +45,29 @@ namespace Player {
         private Socket _trackUpdatesSocket;
 
         public TrackConnection () {
-            _trackUpdatesSocket = CreateTrackSocket (trackPort, ConnectionType.trackUpdateStreamer);
-            _speedUpdateSocket = CreateTrackSocket (trackPort, ConnectionType.speedStreamer);
+            _trackUpdatesSocket = CreateTrackSocket (ConnectionType.trackUpdateStreamer);
+            _speedUpdateSocket = CreateTrackSocket (ConnectionType.speedStreamer);
 
             connectToSpeedSocketDone.WaitOne ();
         }
 
-        private Socket CreateTrackSocket (int port, ConnectionType type) {
+        private Socket CreateTrackSocket (ConnectionType type) {
+            var hostname = Environment.GetEnvironmentVariable("RACE_TRACK_HOSTNAME");
+            if (hostname == null)
+            {
+                hostname = "localhost";
+            }
+
+            var portString = Environment.GetEnvironmentVariable("RACE_TRACK_PORT");
+            var port = 11000;
+            if (portString != null)
+            {
+                port = Int32.Parse(portString);
+            }
+            
+            
             try {
-                IPHostEntry ipHostInfo = Dns.GetHostEntry (Dns.GetHostName ());
+                IPHostEntry ipHostInfo = Dns.GetHostEntry (hostname);
                 IPAddress ipAddress = ipHostInfo.AddressList[0];
                 Socket client = new Socket (ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
