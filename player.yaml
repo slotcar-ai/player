@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: player
+  labels:
+    app: slotcarai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: player
+  template:
+    metadata:
+      labels:
+        app: player
+    spec:
+      containers:
+      - name: player
+        image: slotcarai/player:32
+        env:
+        - name: RACE_TRACK_HOSTNAME
+          value: "race-track"
+        - name: RACE_TRACK_PORT
+          value: "11000"
+        ports:
+        - containerPort: 11000
