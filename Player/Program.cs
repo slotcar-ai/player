@@ -28,7 +28,8 @@ namespace Player
                 {
                     Console.WriteLine(track.GetLatestResponse());
                 }
-                var speed = onOff ? 100 : 0;
+                var random = new Random();
+                var speed = onOff ? random.Next(60, 100) : 0;
                 track.SendSpeed(speed);
                 onOff = !onOff;
                 Thread.Sleep(1000);
