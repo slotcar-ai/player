@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -62,25 +63,11 @@ namespace Player
 
         private Socket CreateTrackSocket(ConnectionType type)
         {
-            var hostname = Environment.GetEnvironmentVariable("RACE_TRACK_HOSTNAME");
-            if (hostname == null)
-            {
-                hostname = "localhost";
-            }
-
-            var portString = Environment.GetEnvironmentVariable("RACE_TRACK_PORT");
-            var port = 11000;
-            if (portString != null)
-            {
-                port = Int32.Parse(portString);
-            }
-
             try
             {
-                IPHostEntry ipHostInfo = Dns.GetHostEntry(hostname);
-                IPAddress ipAddress = ipHostInfo.AddressList[0];
+                IPAddress ipAddress = GetRaceTrackIp();
+                int port = GetRaceTrackPort();
                 Socket client = new Socket(ipAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-
                 var state = new ConnectStateObject(client, type);
                 client.BeginConnect(ipAddress, port, new AsyncCallback(ConnectCallback), state);
                 return client;
@@ -91,6 +78,29 @@ namespace Player
                 Console.WriteLine(e.ToString());
                 throw;
             }
+        }
+
+        private static int GetRaceTrackPort()
+        {
+            var portString = Environment.GetEnvironmentVariable("RACE_TRACK_PORT");
+            if (Int32.TryParse(portString, out int port))
+            {
+               return port;
+            }
+            return 11000;
+        }
+
+        private static IPAddress GetRaceTrackIp()
+        {
+            var hostname = Environment.GetEnvironmentVariable("RACE_TRACK_HOSTNAME") ?? "localhost";
+            
+            if (IPAddress.TryParse(hostname, out IPAddress ipAddress))
+            {
+                return ipAddress;
+            }
+            
+            IPHostEntry ipHostInfo = Dns.GetHostEntry(hostname);
+            return ipHostInfo.AddressList[0];
         }
 
         private void ConnectCallback(IAsyncResult ar)
